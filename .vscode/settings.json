@@ -1,0 +1,10 @@
+{
+  "files.associations": 
+  { 
+  "*.cls": "vb", 
+  "*.frm": "vb",
+  "*.dcm": "vb", 
+  "*.bas": "vb" 
+  },
+  "terminal.integrated.shell.windows": "C:\\Windows\\sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"
+}

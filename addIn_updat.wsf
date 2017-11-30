@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<package>
+<comment>
+This script is an update helper for the Excel add-in.
+Provides easy import and easy export.
+It works using vbac.wsf of the Ariawase library.
+
+The Project Page: https://github.com/icm7216/Excel-addin-update-helper.git
+</comment>
+<job id="">
+<?job error="true" debug="false" ?>
+
+<object id="FSO" progid="Scripting.FileSystemObject"/> 
+<reference object="Scripting.FileSystemObject" /> 
+<reference guid="00020813-0000-0000-C000-000000000046"/>
+
+<script language="VBScript">
+<![CDATA[
+Option Explicit
+'-----------------------------------------------------------------
+'
+' This script updates the Excel add-in file managed by "vbac.wsf".
+' https://github.com/vbaidiot/Ariawase
+'
+'-----------------------------------------------------------------
+'
+' Set the target add-in folder name that you are managing.
+' Recommend the default "bin" folder.
+Const ADDIN_PATH = "bin"
+'
+'-----------------------------------------------------------------
+'
+' Set to True if you want to install in an add-in folder.
+' However, I don't recommend it. It is difficult to manage this folder
+' with "vbac wsf", so extra work increases and convenience decreases.
+Const COPY2ADDIN_DIR = False
+'
+'-----------------------------------------------------------------
+
+
+' Disable the target add-in.
+Sub disable_addin(ByVal addin_list)
+  Dim ExcelApp, addin, addin_name, is_excel_created
+  Set ExcelApp = get_excel(is_excel_created)
+  
+  For Each addin In ExcelApp.AddIns
+    For Each addin_name In addin_list
+      If addin.Name = addin_name Then
+        addin.Installed = False
+        Wscript.Echo "Disable addIn => " & addin.Name
+      End If
+    Next
+  Next
+
+  If is_excel_created Then
+    ExcelApp.Quit
+  End If
+End Sub
+
+
+' combine source files using "vbac.wsf".
+Sub exec_combine()
+  Dim ws_shell, ws_exec
+  Set ws_shell = WScript.CreateObject("WScript.Shell")
+  Set ws_exec = ws_shell.Exec("cscript //nologo vbac.wsf combine /binary:" & ADDIN_PATH)
+
+  Do Until ws_exec.StdOut.AtEndOfStream
+    Wscript.Echo ws_exec.StdOut.ReadLine
+  Loop
+End Sub
+
+
+' copy to user add-in folder
+Sub copy_to_addin_folder(ByVal addin_list)
+  Dim ExcelApp, is_excel_created, user_library_path
+  Dim addin_name, addin_from, addin_to, addin
+  
+  Set ExcelApp = get_excel(is_excel_created)
+  user_library_path = ExcelApp.Application.UserLibraryPath
+  
+  For Each addin_name In addin_list
+    addin_from = FSO.BuildPath(ADDIN_PATH, addin_name)
+    addin_to = FSO.BuildPath(user_library_path, addin_name)
+    FSO.CopyFile addin_from, addin_to, True
+    
+    Set addin = ExcelApp.AddIns.add(addin_to)
+    addin.Installed = True
+    Wscript.Echo "copy/install to user add-in folder" & vbcrlf & "  =>" & addin_to
+  Next
+
+  If is_excel_created Then
+    ExcelApp.Quit
+  End If
+End Sub
+
+
+' enable the target add-in.
+Sub enable_addin(ByVal addin_list)
+  Dim ExcelApp, addin, addin_name, is_excel_created
+  Set ExcelApp = get_excel(is_excel_created)
+  
+  For Each addin In ExcelApp.AddIns
+    For Each addin_name In addin_list
+      If addin.Name = addin_name Then
+        addin.Installed = True
+        Wscript.Echo "Enable addIn => " & addin.Name
+      End If
+    next  
+  Next
+
+  If is_excel_created Then
+    ExcelApp.Quit
+  End If
+End Sub
+
+
+' check up if Excel is running.
+' return: (Boolean) Excel instance exists if True.
+Function is_exist_excel(ByRef instance_name)
+  Dim ExcelApp
+
+  On Error Resume Next
+  Set ExcelApp = GetObject(,"Excel.Application")
+  
+  If Err.Number <> 0 Then
+    is_exist_excel = False
+  Else
+    instance_name = ExcelApp.Application.caption
+    is_exist_excel = True
+  End If
+  
+  Err.Clear
+  On Error GoTo 0
+End Function
+
+
+' get Excel instance
+' return: (Object) Excel object.
+' Create an Excel object if no instance.
+' In this case, the value of the argument "is_excel_created" is True.
+Function get_excel(ByRef is_excel_created)
+  Dim instance_name, ExcelApp
+  On Error Resume Next
+
+  If is_exist_excel(instance_name) Then
+    Set ExcelApp = GetObject(,"Excel.Application")
+    is_excel_created = False
+  Else
+    Set ExcelApp = CreateObject("Excel.Application")
+    ExcelApp.Workbooks.Add
+    ExcelApp.Visible = True
+    is_excel_created = True
+  End If
+
+  Err.Clear
+  On Error GoTo 0
+
+  Set get_excel = ExcelApp
+End Function
+
+
+' install local add-in with "addin_list" if not installed.
+Sub install_addin(ByVal addin_list)
+  Dim cur_dir, addin_folder, ExcelApp, is_excel_created
+
+  cur_dir = FSO.GetParentFolderName(WScript.ScriptFullName)
+  Set addin_folder = FSO.getFolder(FSO.BuildPath(cur_dir, ADDIN_PATH))
+  Set ExcelApp = get_excel(is_excel_created)
+
+  Dim addin_name, require_install, addin, file_path
+  For Each addin_name In addin_list
+    require_install = True
+    For Each addin In ExcelApp.AddIns
+      If addin.Name = addin_name Then
+        require_install = False
+        Exit For
+      End If
+    Next
+    
+    If require_install Then
+      file_path = FSO.BuildPath(addin_folder, addin_name)
+      Set addin = ExcelApp.AddIns.add(file_path, False)
+      addin.Installed = True
+      Wscript.Echo "install local addIn => " & addin.Name
+    End If
+  Next
+
+  If is_excel_created Then
+    ExcelApp.Quit
+  End If
+End Sub
+
+
+' update the add-in with "addin_list".
+' also install the add-in if not installed yet.
+Sub update(ByVal working_on_excel, ByVal addin_list)
+  If working_on_excel Then
+    disable_addin(addin_list)
+  End If
+
+  exec_combine
+
+  If COPY2ADDIN_DIR Then
+    copy_to_addin_folder addin_list
+  Else
+    install_addin addin_list
+  End If
+
+  If working_on_excel Then
+    enable_addin addin_list
+  End If
+End Sub
+
+
+' get add-in file list and temporary file list. (ArrayList)
+' return: (Boolean) add-in file exists if True.
+' In this case, argument "addin_list" (ArrayList) is list of add-ins.
+' and argument "temp_list" (ArrayList) is list of temporary files.
+Function get_addin_list(ByRef addin_list, ByRef temp_list )
+  Dim cur_dir, addin_folder
+  cur_dir = FSO.GetParentFolderName(WScript.ScriptFullName)
+  Set addin_folder = FSO.getFolder(FSO.BuildPath(cur_dir, ADDIN_PATH))
+  get_addin_list = false
+
+  Dim regEx_addin, regEx_tmp, regEx, file
+  regEx_addin = "^[^(~{1}\${1})]+.*\.((xla)|(xlam))$"
+  regEx_tmp = "^(~{1}\${1})+.*\.((xla)|(xlam))$"
+  Set regEx = CreateObject("VBScript.RegExp")
+  regEx.IgnoreCase = True
+
+  For Each file In addin_folder.files
+    regEx.Pattern = regEx_addin
+    If regEx.Test(file.name) Then
+      addin_list.add file.name
+      get_addin_list = True
+    End If
+
+    regEx.Pattern = regEx_tmp
+    If regEx.Test(file.name) Then
+      temp_list.add file.name
+    End If
+  Next
+End Function
+
+
+Sub update_addin()
+  Dim addin_list, temp_list, addin_exist, name
+  Set addin_list = CreateObject("System.Collections.ArrayList")
+  Set temp_list = CreateObject("System.Collections.ArrayList") 
+  addin_exist = get_addin_list(addin_list, temp_list)
+  If addin_exist Then
+    Wscript.Echo "found " & addin_list.count & " addin file" 
+    For Each name In addin_list
+      Wscript.Echo "  => " & name
+    Next
+  Else
+    Wscript.Echo "addin file not exists." & vbcrlf
+    WScript.Quit
+  End If
+
+  If temp_list.count > 0 Then
+    Wscript.Echo "  found " & temp_list.count & " temporary file." 
+    For Each name In temp_list
+      Wscript.Echo "  => " & name
+    Next
+  End If
+
+  ' Working on Excel?
+  Dim excel_instance, working_status, instance_name
+  Wscript.Echo "Checking the working status of Excel."  
+  excel_instance = is_exist_excel(instance_name)
+  If excel_instance and (temp_list.count > 0) Then
+    Wscript.Echo "  found Excel instance => " & instance_name
+    working_status = True
+  ElseIf excel_instance and (temp_list.count = 0) Then
+    Wscript.Echo "  found add-in, but not installed yet."
+    working_status = True
+  Else
+    Wscript.Echo "  Excel instance not exists."
+    working_status = False
+  End If
+  
+  ' update the target add-ins
+  update working_status, addin_list 
+End Sub
+
+
+Sub main()
+  Wscript.Echo "----------------------------------------"
+  Wscript.Echo "  Import the source file after combine  "
+  Wscript.Echo "----------------------------------------"
+
+  update_addin()
+
+  Wscript.Echo "Import completed" & vbcrlf
+End Sub
+
+
+Call main()
+]]>
+</script>
+
+</job>
+</package>
